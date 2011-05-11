@@ -1,3 +1,22 @@
+#! /usr/bin/env lua
+
+--[[
+   build_elua.lua: A build script for eLua written in Lua.
+ 
+   The command line syntax is the same as for the old scons/SConstruct system.
+   See http://www.eluaproject.net/en_building.html
+
+   The only required option is the target board or CPU. e.g.:
+     lua build_elua.lua board=MIZAR32
+  
+   This script requires some well-known Lua libraries to run.
+   To install them on Ubuntu/Debian, go (as root):
+       apt-get install luarocks
+       luarocks install luafilesystem
+       luarocks install lpack
+       luarocks install md5
+--]]
+
 local args = { ... }
 local b = require "utils.build"
 local mkfs = require "utils.mkfs"
@@ -105,6 +124,17 @@ local toolchain_list =
     cross_lualong = 'int 32',
     version = '--version'
   },
+  [ 'avr32-unknown-none-gcc' ] = { 
+    compile = 'avr32-unknown-none-gcc', 
+    link = 'avr32-unknown-none-ld', 
+    asm = 'avr32-unknown-none-as', 
+    bin = 'avr32-unknown-none-objcopy', 
+    size = 'avr32-unknown-none-size',
+    cross_cpumode = 'big',
+    cross_lua = 'float 64',
+    cross_lualong = 'int 32',
+    version = '--version'
+  },
   [ 'i686-gcc' ] = { 
     compile = 'i686-elf-gcc', 
     link = 'i686-elf-ld', 
@@ -134,7 +164,7 @@ local platform_list =
   lpc288x = { cpus = { 'LPC2888' }, toolchains = { 'arm-gcc', 'codesourcery', 'devkitarm', 'arm-eabi-gcc' } },
   str7 = { cpus = { 'STR711FR2' }, toolchains = { 'arm-gcc', 'codesourcery', 'devkitarm', 'arm-eabi-gcc' } },
   stm32 = { cpus = { 'STM32F103ZE', 'STM32F103RE' }, toolchains = { 'arm-gcc', 'codesourcery', 'devkitarm', 'arm-eabi-gcc' } },
-  avr32 = { cpus = { 'AT32UC3A0512', 'AT32UC3A0128', 'AT32UC3B0256' }, toolchains = { 'avr32-gcc' } },
+  avr32 = { cpus = { 'AT32UC3A0512', 'AT32UC3A0128', 'AT32UC3B0256' }, toolchains = { 'avr32-gcc', 'avr32-unknown-none-gcc' } },
   lpc24xx = { cpus = { 'LPC2468' }, toolchains = { 'arm-gcc', 'codesourcery', 'devkitarm', 'arm-eabi-gcc' } },
   lpc17xx = { cpus = { 'LPC1768' }, toolchains = { 'arm-gcc', 'codesourcery', 'devkitarm', 'arm-eabi-gcc' } }
 }
@@ -274,6 +304,7 @@ builder:add_option( 'optram', 'enables Lua Tiny RAM enhancements', true )
 builder:add_option( 'boot', 'boot mode, standard will boot to shell, luarpc boots to an rpc server', 'standard', { 'standard' , 'luarpc' } )
 builder:add_option( 'romfs', 'ROMFS compilation mode', 'verbatim', { 'verbatim' , 'compress', 'compile' } )
 builder:add_option( 'cpumode', 'ARM CPU compilation mode (only affects certain ARM targets)', nil, { 'arm', 'thumb' } )
+builder:add_option( 'bootloader', 'Build for bootloader usage (AVR32 only)', 'none', { 'none', 'emblod' } )
 builder:init( args )
 builder:set_build_mode( builder.BUILD_DIR_LINEARIZED )
 
@@ -286,7 +317,7 @@ setmetatable( comp, { __index = function( t, key ) return builder:get_option( ke
 --           cpu = <cpuname>
 --           board = <board> cpu=<cpuname>
 if comp.board == 'auto' and comp.cpu == 'auto' then
-  print "Must specifiy board, cpu, or both"
+  print "You must specify board, cpu, or both"
   os.exit( -1 )
 elseif comp.board ~= 'auto' and comp.cpu ~= 'auto' then
   -- Check if the board, cpu pair is correct
@@ -419,56 +450,27 @@ if comp.allocator == 'multiple' then
 elseif comp.allocator == 'simple' then
    addm( "USE_SIMPLE_ALLOCATOR" )
 end
-
-if comp.boot == 'luarpc' then
-  addm( "ELUA_BOOT_RPC" )
-end
+if comp.boot == 'luarpc' then addm( "ELUA_BOOT_RPC" ) end
+if comp.target == 'lualong' then addm( "LUA_NUMBER_INTEGRAL" ) end
 
 -- Special macro definitions for the SYM target
-if platform == 'sim' then
-  addm( { "ELUA_SIMULATOR", "ELUA_SIM_" .. cnorm( comp.cpu ) } )
-end
+if platform == 'sim' then addm( { "ELUA_SIMULATOR", "ELUA_SIM_" .. cnorm( comp.cpu ) } ) end
 
 -- Lua source files and include path
-local lua_files = ([[lapi.c lcode.c ldebug.c ldo.c ldump.c lfunc.c lgc.c llex.c lmem.c lobject.c lopcodes.c
-  lparser.c lstate.c lstring.c ltable.c ltm.c lundump.c lvm.c lzio.c lauxlib.c lbaselib.c
-  ldblib.c liolib.c lmathlib.c loslib.c ltablib.c lstrlib.c loadlib.c linit.c lua.c lrotable.c legc.c]]):gsub( "\n", "" )
-local lua_full_files = utils.prepend_path( lua_files, "src/lua" )
+exclude_patterns = { "^src/platform", "^src/uip", "^src/serial", "^src/luarpc_desktop_serial.c", "^src/lua/print.c", "^src/lua/luac.c" }
+local source_files = utils.get_files( "src", function( fname )
+  fname = fname:gsub( "\\", "/" ) 
+  local include = fname:find( ".*%.c$" )
+  if include then
+    utils.foreach( exclude_patterns, function( k, v ) if fname:match( v ) then include = false end end )
+  end
+  return include
+end )
+-- Add uIP files manually because not all of them are included in the build ([TODO] why?)
+local uip_files = " " .. utils.prepend_path( "uip_arp.c uip.c uiplib.c dhcpc.c psock.c resolv.c", "src/uip" )
 
-addi( { 'inc', 'inc/newlib',  'inc/remotefs', 'src/platform', 'src/lua' } )
-
-if comp.target == 'lualong' then
-  addm( "LUA_NUMBER_INTEGRAL" )
-end
-
-addi( { 'src/modules', 'src/platform/' .. platform } )
+addi{ { 'inc', 'inc/newlib',  'inc/remotefs', 'src/platform', 'src/lua' }, { 'src/modules', 'src/platform/' .. platform }, "src/uip", "src/fatfs" }
 addm( "LUA_OPTIMIZE_MEMORY=" .. ( comp.optram and "2" or "0" ) )
-
--- Application files
-local app_files = ([[ src/main.c src/romfs.c src/semifs.c src/xmodem.c src/shell.c src/term.c src/common.c src/common_tmr.c src/buf.c src/elua_adc.c src/dlmalloc.c 
-                src/salloc.c src/luarpc_elua_uart.c src/elua_int.c src/linenoise.c src/common_uart.c src/eluarpc.c ]]):gsub( "\n", "" )
-
--- Newlib related files
-local newlib_files = " src/newlib/devman.c src/newlib/stubs.c src/newlib/genstd.c src/newlib/stdtcp.c"
-
--- UIP files
-local uip_files = "uip_arp.c uip.c uiplib.c dhcpc.c psock.c resolv.c"
-uip_files = " src/elua_uip.c " .. utils.prepend_path( uip_files, "src/uip" )
-addi( "src/uip" )
-
--- FatFs files
-app_files = app_files .. "src/elua_mmc.c src/mmcfs.c src/fatfs/ff.c src/fatfs/ccsbcs.c "
-addi( "src/fatfs" )
-
--- Lua module files
-local module_names = "pio.c spi.c tmr.c pd.c uart.c term.c pwm.c lpack.c bit.c net.c cpu.c adc.c can.c luarpc.c bitarray.c elua.c i2c.c"
-local module_files = " " .. utils.prepend_path( module_names, 'src/modules' )
-
--- Remote file system files
-local rfs_names = "remotefs.c client.c elua_os_io.c elua_rfs.c"
-local rfs_files = " " .. utils.prepend_path( rfs_names, "src/remotefs" )
-
--- Optimizer flags (speed or size)
 addcf( { '-Os','-fomit-frame-pointer' } )
 
 -- Toolset data (filled by each platform in part)
@@ -479,7 +481,7 @@ specific_files = ''
 dofile( sf( "src/platform/%s/conf.lua", platform ) )
 
 -- Complete file list
-local source_files = app_files .. specific_files .. newlib_files .. uip_files .. lua_full_files .. module_files .. rfs_files 
+source_files = source_files .. uip_files .. specific_files
 
 -------------------------------------------------------------------------------
 -- Create compiler/linker/assembler command lines and build

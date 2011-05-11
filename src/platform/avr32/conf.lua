@@ -1,6 +1,6 @@
 -- Configuration file for the AVR32 microcontrollers
 
-specific_files = "crt0.s trampoline.s platform.c exception.s intc.c pm.c flashc.c pm_conf_clocks.c usart.c gpio.c tc.c spi.c platform_int.c"
+specific_files = "crt0.s trampoline.s platform.c exception.s intc.c pm.c flashc.c pm_conf_clocks.c usart.c gpio.c tc.c spi.c platform_int.c adc.c pwm.c ethernet.c"
 addm( "FORAVR32" )
 
 -- See board.h for possible BOARD values.
@@ -19,7 +19,15 @@ end
 
 -- Prepend with path
 specific_files = utils.prepend_path( specific_files, "src/platform/" .. platform )
-local ldscript = sf( "src/platform/%s/%s.ld", platform, comp.cpu:lower() )
+-- Choose ldscript according to choice of bootloader
+if comp.bootloader == 'none' then
+  print "Compiling for FLASH execution"
+  ldscript = sf( "src/platform/%s/%s.ld", platform, comp.cpu:lower() )
+else
+  print "Compiling for SDRAM execution"
+  ldscript = sf( "src/platform/%s/%s_%s.ld", platform, comp.cpu:lower(), comp.bootloader )
+end
+addm( 'BOOTLOADER_' .. comp.bootloader:upper() )
 
 -- Standard GCC Flags
 addcf( { '-ffunction-sections','-fdata-sections','-fno-strict-aliasing','-Wall' } )

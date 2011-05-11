@@ -18,9 +18,14 @@
 #define BUILD_CON_GENERIC
 //#define BUILD_RPC
 #define BUILD_C_INT_HANDLERS
-#define BUILA_LUA_INT_HANDLERS
+#define BUILD_LUA_INT_HANDLERS
 //#define BUILD_RFS
 //#define BUILD_SERMUX
+#define BUILD_ADC
+
+#define BUILD_UIP
+//#define BUILD_DHCPC
+#define BUILD_DNS
 
 // *****************************************************************************
 // UART/Timer IDs configuration data (used in main.c)
@@ -60,6 +65,17 @@
 #define BUILD_RPC
 #endif
 
+#ifdef BUILD_ADC
+#define ADCLINE _ROM( AUXLIB_ADC, luaopen_adc, adc_map )
+#else
+#define ADCLINE
+#endif
+#ifdef BUILD_UIP
+#define NETLINE  _ROM( AUXLIB_NET, luaopen_net, net_map )
+#else
+#define NETLINE
+#endif
+
 #if defined( BUILD_RPC ) 
 #define RPCLINE _ROM( AUXLIB_RPC, luaopen_rpc, rpc_map )
 #else
@@ -70,9 +86,12 @@
   _ROM( AUXLIB_PD, luaopen_pd, pd_map )\
   _ROM( AUXLIB_UART, luaopen_uart, uart_map )\
   _ROM( AUXLIB_PIO, luaopen_pio, pio_map )\
+  _ROM( AUXLIB_PWM, luaopen_pwm, pwm_map )\
   _ROM( AUXLIB_SPI, luaopen_spi, spi_map )\
   _ROM( AUXLIB_TMR, luaopen_tmr, tmr_map )\
   _ROM( AUXLIB_TERM, luaopen_term, term_map )\
+  ADCLINE\
+  NETLINE\
   _ROM( AUXLIB_CPU, luaopen_cpu, cpu_map )\
   _ROM( AUXLIB_ELUA, luaopen_elua, elua_map )\
   RPCLINE\
@@ -90,14 +109,14 @@
 // Number of resources (0 if not available/not implemented)
 #define NUM_PIO               4
 #define NUM_SPI               8
-#define NUM_UART              4
+#define NUM_UART              2
 #if VTMR_NUM_TIMERS > 0
 #define NUM_TIMER             2
 #else
 #define NUM_TIMER             3
 #endif
-#define NUM_PWM               0
-#define NUM_ADC               0
+#define NUM_PWM               7
+#define NUM_ADC               8
 #define NUM_CAN               0
 
 // RPC boot options
@@ -108,6 +127,15 @@
 // Enable RX buffering on UART
 #define BUF_ENABLE_UART
 #define CON_BUF_SIZE          BUF_SIZE_128
+
+// ADC Configuration Params
+#define ADC_BIT_RESOLUTION    10
+#define BUF_ENABLE_ADC
+#define ADC_BUF_SIZE          BUF_SIZE_2
+
+// These should be adjusted to support multiple ADC devices
+#define ADC_TIMER_FIRST_ID    0
+#define ADC_NUM_TIMERS        0
 
 // SD/MMC Filesystem Setup
 #define MMCFS_TICK_HZ     10
@@ -143,6 +171,9 @@
 //#define SERMUX_NUM_VUART      2
 //#define SERMUX_BUFFER_SIZES   { RFS_BUFFER_SIZE, CON_BUF_SIZE }
 
+// Interrupt queue size
+#define PLATFORM_INT_QUEUE_LOG_SIZE 5
+
 // Interrupt list
 #define INT_UART_RX           ELUA_INT_FIRST_ID
 #define INT_ELUA_LAST         INT_UART_RX
@@ -152,5 +183,27 @@
 
 // *****************************************************************************
 // CPU constants that should be exposed to the eLua "cpu" module
+
+
+// Static TCP/IP configuration
+#define ELUA_CONF_IPADDR0     192
+#define ELUA_CONF_IPADDR1     168
+#define ELUA_CONF_IPADDR2     1
+#define ELUA_CONF_IPADDR3     10
+
+#define ELUA_CONF_NETMASK0    255
+#define ELUA_CONF_NETMASK1    255
+#define ELUA_CONF_NETMASK2    255
+#define ELUA_CONF_NETMASK3    0
+
+#define ELUA_CONF_DEFGW0      192
+#define ELUA_CONF_DEFGW1      168
+#define ELUA_CONF_DEFGW2      1
+#define ELUA_CONF_DEFGW3      1
+
+#define ELUA_CONF_DNS0        192
+#define ELUA_CONF_DNS1        168
+#define ELUA_CONF_DNS2        1
+#define ELUA_CONF_DNS3        1
 
 #endif // #ifndef __EVK1100_CONF_H__
